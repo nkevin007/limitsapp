@@ -5,15 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>Limits Explorer+</title>
 
-<!-- Tailwind (CDN) -->
+<!-- Tailwind (CDN) for styling -->
 <script src="https://cdn.tailwindcss.com"></script>
-<!-- React 18 + ReactDOM (UMD) -->
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<!-- Math.js (UMD) global `math` -->
+<!-- Math.js (UMD global `math`) -->
 <script src="https://unpkg.com/mathjs@11/dist/math.min.js"></script>
-<!-- Babel for JSX -->
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
 <style>
   html,body{background:#0b1020;color:#e6edf7}
@@ -28,535 +23,464 @@
     animation: hue 18s linear infinite;
   }
   @keyframes hue { 0%{filter:hue-rotate(0deg)} 100%{filter:hue-rotate(25deg)} }
-  /* Confetti canvas overlay */
   #confetti { position:fixed; inset:0; pointer-events:none; }
+  .chip{display:inline-block; width:10px; height:10px; border-radius:4px; margin-right:6px}
 </style>
 </head>
 <body class="min-h-screen">
 <canvas id="confetti"></canvas>
-<div id="root"></div>
 
-<script type="text/babel">
-const { useState, useEffect, useRef } = React;
-const mathlib = math.create(math.all);
+<div class="p-4 flex justify-center">
+  <div class="max-w-6xl w-full space-y-4">
+    <div class="panel rounded-2xl p-6">
+      <h1 class="text-3xl md:text-4xl font-extrabold text-center text-fuchsia-300">Limits Explorer<span class="text-sky-300">+</span></h1>
+      <p class="text-slate-300 text-center mt-2">Tilt, shake, haptics, tone, and a quick challenge to “hit the limit”.</p>
+    </div>
 
-function App(){
-  // Inputs
-  const [funcText, setFuncText] = useState('sin(x)/x');
-  const [a, setA] = useState(0);
-  const [side, setSide] = useState('two'); // 'left'|'right'|'two'
-
-  // Computed limits, f(a)
-  const [L, setL] = useState(null);   // two-sided (or 'DNE')
-  const [LL, setLL] = useState(null); // left
-  const [LR, setLR] = useState(null); // right
-  const [fAtA, setFAtA] = useState(null);
-  const [errMsg, setErrMsg] = useState('');
-
-  // Interaction point x
-  const [x, setX] = useState(0);
-  const [dragging, setDragging] = useState(false);
-
-  // Phone perks
-  const [tiltEnabled, setTiltEnabled] = useState(false);
-  const [tiltSensitivity, setTiltSensitivity] = useState(0.06); // units per degree
-  const tiltBaseRef = useRef(0); // baseline gamma
-  const [hapticsOn, setHapticsOn] = useState(true);
-  const [toneOn, setToneOn] = useState(false);
-
-  // Challenge
-  const [inChal, setInChal] = useState(false);
-  const [clock, setClock] = useState(10);
-  const scoreRef = useRef(0);
-  const timerRef = useRef(null);
-
-  // Canvas ref
-  const canvasRef = useRef(null);
-
-  // Compile expression
-  const compiledRef = useRef(null);
-  useEffect(()=>{
-    try{
-      const node = mathlib.parse(funcText);
-      compiledRef.current = node.compile();
-      setErrMsg('');
-    }catch(e){
-      compiledRef.current = null;
-      setErrMsg('Function parse error. Try: sin(x)/x, (x^2-1)/(x-1), abs(x)/x, x*sin(1/x)');
-    }
-  },[funcText]);
-
-  // Recompute limits when func/a change
-  useEffect(()=>{
-    if(!compiledRef.current){
-      setL(null); setLL(null); setLR(null); setFAtA(null);
-      return;
-    }
-    setFAtA(safeEval(a));
-    const Lleft = numericLimit(a,'left');
-    const Lright = numericLimit(a,'right');
-    setLL(Lleft); setLR(Lright);
-    if(Number.isFinite(Lleft) && Number.isFinite(Lright) && Math.abs(Lleft-Lright) < 1e-2){
-      setL((Lleft+Lright)/2);
-    } else {
-      setL('DNE');
-    }
-    // start position based on side
-    if(side==='left') setX(a-2);
-    else if(side==='right') setX(a+2);
-    else setX(a);
-  },[a, funcText, side]);
-
-  // Draw graph on changes
-  useEffect(()=>{
-    const c = canvasRef.current; if(!c) return;
-    const ctx = c.getContext('2d');
-    const padding = 50, graphSize = 520, scale = 40;
-    const dpr = window.devicePixelRatio || 1;
-    const W = graphSize + 2*padding, H = W;
-    c.width = Math.floor(W*dpr); c.height = Math.floor(H*dpr);
-    c.style.width = W+'px'; c.style.height = H+'px';
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-
-    // Grid
-    ctx.clearRect(0,0,W,H);
-    ctx.strokeStyle = '#26304d'; ctx.lineWidth=1;
-    for(let i=padding;i<=W-padding;i+=20){ ctx.beginPath(); ctx.moveTo(i,padding); ctx.lineTo(i,H-padding); ctx.stroke(); }
-    for(let j=padding;j<=H-padding;j+=20){ ctx.beginPath(); ctx.moveTo(padding,j); ctx.lineTo(W-padding,j); ctx.stroke(); }
-
-    // Axes
-    ctx.strokeStyle='#8aa0d6'; ctx.lineWidth=2;
-    const x0 = padding + graphSize/2, y0 = padding + graphSize/2;
-    ctx.beginPath(); ctx.moveTo(padding,y0); ctx.lineTo(W-padding,y0); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x0,padding); ctx.lineTo(x0,H-padding); ctx.stroke();
-
-    // Function
-    if(compiledRef.current){
-      ctx.strokeStyle='#38BDF8'; ctx.lineWidth=3; ctx.lineJoin='round'; ctx.shadowColor='#38BDF8'; ctx.shadowBlur=8;
-      ctx.beginPath(); let first=true;
-      for(let px=-graphSize/2; px<=graphSize/2; px++){
-        const xv = px/scale; const yv = safeEval(xv);
-        const X = x0 + px; const Y = y0 - yv*scale;
-        if(!Number.isFinite(yv) || Y < padding || Y > H-padding){
-          if(!first){ ctx.stroke(); ctx.beginPath(); first=true; }
-          continue;
-        }
-        if(first){ ctx.moveTo(X,Y); first=false; } else ctx.lineTo(X,Y);
-      }
-      ctx.stroke(); ctx.shadowBlur=0;
-    }
-
-    // Guides at a and L
-    ctx.setLineDash([6,6]); ctx.strokeStyle='#EC4899'; ctx.lineWidth=2;
-    const XA = x0 + a*40;
-    ctx.beginPath(); ctx.moveTo(XA,padding); ctx.lineTo(XA,H-padding); ctx.stroke();
-
-    if(L!=='DNE' && Number.isFinite(L)){
-      const YL = y0 - L*40;
-      ctx.beginPath(); ctx.moveTo(padding,YL); ctx.lineTo(W-padding,YL); ctx.stroke();
-      ctx.setLineDash([]);
-      // open circle
-      ctx.fillStyle='#0b1020'; ctx.strokeStyle='#EC4899'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.arc(XA,YL,6,0,Math.PI*2); ctx.fill(); ctx.stroke();
-    } else {
-      ctx.setLineDash([]);
-    }
-
-    // Draggable point
-    const y = safeEval(x);
-    if(Number.isFinite(y)){
-      const XP = x0 + x*40; const YP = y0 - y*40;
-      // trail
-      const Yref = (Number.isFinite(L) ? (y0 - L*40) : YP);
-      ctx.strokeStyle='rgba(59,130,246,0.55)'; ctx.lineWidth=3;
-      ctx.beginPath(); ctx.moveTo(XA, Yref); ctx.lineTo(XP,YP); ctx.stroke();
-
-      // guide lines
-      ctx.strokeStyle='#60A5FA'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(XP,YP); ctx.lineTo(XP,y0); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(XP,YP); ctx.lineTo(x0,YP); ctx.stroke();
-
-      // point
-      ctx.fillStyle='#3B82F6';
-      ctx.beginPath(); ctx.arc(XP,YP,7,0,Math.PI*2); ctx.fill();
-
-      // labels
-      ctx.fillStyle='#e6edf7'; ctx.font='14px system-ui, sans-serif';
-      ctx.fillText(`x=${x.toFixed(2)}`, XP+10, YP-12);
-      ctx.fillText(`f(x)=${y.toFixed(2)}`, XP+10, YP+16);
-    }
-
-  },[funcText,a,x,L]);
-
-  /* ---------- Helpers ---------- */
-  function safeEval(xVal){
-    try { return compiledRef.current.evaluate({x:xVal}); }
-    catch { return NaN; }
-  }
-  function numericLimit(aVal, which){
-    // progressively smaller h
-    const hs=[1e-1, 5e-2, 1e-2, 5e-3, 1e-3];
-    const vals=[];
-    for(const h of hs){
-      const xv = which==='left' ? aVal - h : aVal + h;
-      const yv = safeEval(xv);
-      if(Number.isFinite(yv)) vals.push(yv);
-    }
-    if(!vals.length) return NaN;
-    const last = vals.slice(-3).sort((a,b)=>a-b);
-    return last[Math.floor(last.length/2)];
-  }
-
-  /* ---------- Tilt control ---------- */
-  useEffect(()=>{
-    if(!tiltEnabled) return;
-    function handleOri(e){
-      // gamma ~ left/right tilt, in degrees (-90..90)
-      let gamma = (typeof e.gamma === 'number') ? e.gamma : 0;
-      if (Math.abs(gamma) > 89) gamma = 0; // guard weird readings
-      const delta = (gamma - tiltBaseRef.current) * tiltSensitivity; // units
-      let nx = a + delta;
-      if(side==='left' && nx>a) nx=a;
-      if(side==='right' && nx<a) nx=a;
-      setX(nx);
-    }
-    window.addEventListener('deviceorientation', handleOri, { passive:true });
-    return ()=> window.removeEventListener('deviceorientation', handleOri);
-  }, [tiltEnabled, tiltSensitivity, a, side]);
-
-  async function enableTilt(){
-    try{
-      // iOS 13+ permission dance
-      const DOE = window.DeviceOrientationEvent;
-      if (DOE && typeof DOE.requestPermission === 'function') {
-        const res = await DOE.requestPermission();
-        if (res !== 'granted') throw new Error('Permission denied');
-      }
-      tiltBaseRef.current = 0;
-      setTiltEnabled(true);
-    }catch(err){
-      alert('Tilt permission failed. Try in Safari/Chrome on phone.\n' + err.message);
-    }
-  }
-  function calibrateTilt(){
-    // Capture current gamma as neutral baseline
-    window.addEventListener('deviceorientation', function once(e){
-      if (typeof e.gamma === 'number') {
-        tiltBaseRef.current = e.gamma;
-      }
-      window.removeEventListener('deviceorientation', once);
-    }, { passive:true });
-  }
-
-  /* ---------- Haptics + Tone feedback ---------- */
-  // Pulse as |x-a| shrinks and as |f(x)-L| shrinks (if L exists)
-  useEffect(()=>{
-    if(!hapticsOn) return;
-    const nearA = Math.abs(x - a);
-    const nearL = (L!=='DNE' && Number.isFinite(L)) ? Math.abs(safeEval(x) - L) : null;
-
-    // Short pulses near 'a'
-    if(nearA < 0.08 && 'vibrate' in navigator) navigator.vibrate(25);
-    // Stronger pulses when f(x) ~ L
-    if(nearL !== null && nearL < 0.06 && 'vibrate' in navigator) navigator.vibrate([0, 50]);
-
-  }, [x, a, L, hapticsOn]);
-
-  // WebAudio tone whose pitch tracks error |f(x)-L|
-  const audioRef = useRef(null);
-  useEffect(()=>{
-    if(!toneOn){
-      // stop if running
-      if(audioRef.current){
-        const { osc, ctx } = audioRef.current;
-        if (osc) osc.stop();
-        if (ctx && ctx.state !== 'closed') ctx.close();
-      }
-      audioRef.current = null;
-      return;
-    }
-    // start oscillator
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain(); gain.gain.value = 0.08;
-    osc.type = 'sine'; osc.connect(gain).connect(ctx.destination); osc.start();
-    audioRef.current = { ctx, osc, gain };
-    return ()=>{
-      try{ osc.stop(); ctx.close(); }catch{}
-      audioRef.current = null;
-    };
-  }, [toneOn]);
-
-  // Update pitch as error changes
-  useEffect(()=>{
-    if(!toneOn || !audioRef.current) return;
-    const { osc } = audioRef.current;
-    const err = (L!=='DNE' && Number.isFinite(L)) ? Math.abs(safeEval(x) - L) : 1;
-    // Map error (0..1) -> frequency (1200..160 Hz), clamp
-    const e = Math.min(1, err);
-    const freq = 160 + (1 - Math.min(1, e*1.2)) * 1040;
-    try{ osc.frequency.setTargetAtTime(freq, audioRef.current.ctx.currentTime, 0.05); }catch{}
-  }, [x, L, toneOn]);
-
-  /* ---------- Challenge: Hit the Limit (10s) ---------- */
-  function startChallenge(){
-    if(L==='DNE' || !Number.isFinite(L)){
-      alert('Two-sided limit does not exist at this a. Pick a preset like sin(x)/x @ 0 or (x^2-1)/(x-1) @ 1.');
-      return;
-    }
-    setInChal(true); setClock(10); scoreRef.current = 0;
-    timerRef.current && clearInterval(timerRef.current);
-    const t0 = performance.now();
-    timerRef.current = setInterval(()=>{
-      const t = performance.now();
-      const dt = Math.min(0.1, (t - (timerRef.current._last||t))/1000); // ~100ms
-      timerRef.current._last = t;
-
-      // reward closeness to a and to L
-      const errX = Math.abs(x - a);
-      const errF = Math.abs(safeEval(x) - L);
-      const closeness = Math.max(0, 1 - (errX/0.25 + errF/0.25)); // both within ~0.25
-      scoreRef.current += Math.max(0, closeness) * dt * 100;
-
-      // countdown
-      setClock(prev => {
-        const next = Math.max(0, prev - dt);
-        if(next === 0){
-          clearInterval(timerRef.current);
-          setInChal(false);
-          showConfetti(scoreRef.current);
-        }
-        return next;
-      });
-    }, 100);
-  }
-  function stopChallenge(){
-    timerRef.current && clearInterval(timerRef.current);
-    setInChal(false);
-  }
-
-  /* ---------- Shake to shuffle ---------- */
-  useEffect(()=>{
-    let last = 0, accSum = 0;
-    function onMotion(e){
-      const a = e.accelerationIncludingGravity || e.acceleration || {};
-      const ax = Math.abs(a.x||0), ay=Math.abs(a.y||0), az=Math.abs(a.z||0);
-      const mag = ax+ay+az;
-      const now = performance.now();
-      if(now - last > 150){
-        accSum = 0; last = now;
-      } else {
-        accSum += mag;
-        if(accSum > 60){ // crude threshold
-          accSum = 0;
-          randomPresetAndChallenge();
-        }
-      }
-    }
-    window.addEventListener('devicemotion', onMotion, { passive:true });
-    return ()=> window.removeEventListener('devicemotion', onMotion);
-  }, []);
-
-  function randomPresetAndChallenge(){
-    const presets = [
-      { f:'sin(x)/x', a:0 },
-      { f:'(x^2-1)/(x-1)', a:1 },
-      { f:'(2*x^2-3*x+1)/(x-1)', a:1 },
-      { f:'(x+1)-1', a:0 },
-    ];
-    const pick = presets[Math.floor(Math.random()*presets.length)];
-    setFuncText(pick.f); setA(pick.a); setSide('two');
-    setTimeout(startChallenge, 300);
-  }
-
-  /* ---------- Confetti ---------- */
-  function showConfetti(score){
-    const c = document.getElementById('confetti');
-    const ctx = c.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
-    const W = c.width = Math.floor(innerWidth*dpr);
-    const H = c.height = Math.floor(innerHeight*dpr);
-    c.style.width = innerWidth+'px'; c.style.height = innerHeight+'px';
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-
-    const N = 180;
-    const parts = Array.from({length:N}, () => ({
-      x: Math.random()*innerWidth,
-      y: -20 - Math.random()*100,
-      vx: (Math.random()-0.5)*2,
-      vy: 2 + Math.random()*3,
-      size: 4 + Math.random()*4,
-      rot: Math.random()*Math.PI,
-      vr: (Math.random()-0.5)*0.2,
-      col: ['#7dd3fc','#34d399','#a78bfa','#f472b6','#fbbf24'][Math.floor(Math.random()*5)],
-    }));
-    let t = 0, maxT = 1800; // ms
-    (function loop(ts0){
-      const start = performance.now();
-      function frame(ts){
-        const dt = 16;
-        ctx.clearRect(0,0,innerWidth,innerHeight);
-        parts.forEach(p=>{
-          p.x += p.vx; p.y += p.vy; p.rot += p.vr;
-          ctx.save();
-          ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-          ctx.fillStyle = p.col;
-          ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
-          ctx.restore();
-        });
-        t += dt;
-        if(t < maxT) requestAnimationFrame(frame);
-        else ctx.clearRect(0,0,innerWidth,innerHeight);
-      }
-      requestAnimationFrame(frame);
-    })();
-
-    // toast score
-    const div = document.createElement('div');
-    div.textContent = `Challenge score: ${Math.round(score)} pts`;
-    Object.assign(div.style, {
-      position:'fixed', left:'50%', top:'18px', transform:'translateX(-50%)',
-      background:'rgba(10,20,60,.9)', color:'#e6edf7', border:'1px solid rgba(255,255,255,.2)',
-      padding:'10px 14px', borderRadius:'12px', zIndex:9999
-    });
-    document.body.appendChild(div);
-    setTimeout(()=> div.remove(), 2000);
-  }
-
-  /* ---------- Examples ---------- */
-  function setExample(key){
-    if(key==='sinc'){ setFuncText('sin(x)/x'); setA(0); }
-    if(key==='rem'){ setFuncText('(x^2-1)/(x-1)'); setA(1); }
-    if(key==='jump'){ setFuncText('abs(x)/x'); setA(0); }
-    if(key==='rat'){ setFuncText('(2*x^2-3*x+1)/(x-1)'); setA(1); }
-    if(key==='osc'){ setFuncText('x*sin(1/x)'); setA(0); }
-  }
-
-  /* ---------- Render ---------- */
-  return (
-    <div className="p-4 flex justify-center">
-      <div className="max-w-6xl w-full space-y-4">
-        <div className="panel rounded-2xl p-6">
-          <h1 className="text-3xl md:text-4xl font-extrabold text-center text-fuchsia-300">Limits Explorer<span className="text-sky-300">+</span></h1>
-          <p className="text-slate-300 text-center mt-2">Tilt, shake, haptics, tone, and a quick challenge to “hit the limit”.</p>
-        </div>
-
-        {/* Controls */}
-        <div className="panel rounded-2xl p-4 md:p-6">
-          <div className="grid md:grid-cols-3 gap-4">
-            <label className="block">
-              <span className="text-sm text-slate-300">Function f(x)</span>
-              <input value={funcText} onChange={e=>setFuncText(e.target.value)}
-                     className="w-full mt-1 bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:ring-2 focus:ring-fuchsia-500"/>
-            </label>
-            <label className="block">
-              <span className="text-sm text-slate-300">Point a</span>
-              <input type="number" value={a} onChange={e=>setA(parseFloat(e.target.value))}
-                     className="w-full mt-1 bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:ring-2 focus:ring-fuchsia-500"/>
-            </label>
-            <div>
-              <span className="text-sm text-slate-300">Approach</span>
-              <div className="flex gap-2 mt-1">
-                <button onClick={()=>setSide('left')}
-                        className={`flex-1 p-2 rounded-lg font-semibold ${side==='left'?'bg-fuchsia-600':'bg-slate-800'}`}>Left (x→a⁻)</button>
-                <button onClick={()=>setSide('two')}
-                        className={`flex-1 p-2 rounded-lg font-semibold ${side==='two'?'bg-fuchsia-600':'bg-slate-800'}`}>Both</button>
-                <button onClick={()=>setSide('right')}
-                        className={`flex-1 p-2 rounded-lg font-semibold ${side==='right'?'bg-fuchsia-600':'bg-slate-800'}`}>Right (x→a⁺)</button>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2 items-center">
-            {/* Tilt */}
-            {!tiltEnabled
-              ? <button onClick={enableTilt} className="px-4 py-2 rounded-full bg-indigo-600">Enable Tilt (iOS will ask)</button>
-              : <button onClick={calibrateTilt} className="px-4 py-2 rounded-full bg-indigo-800">Calibrate tilt</button>}
-            <label className="flex items-center gap-2 ml-2">
-              <span className="text-sm text-slate-300">Sensitivity</span>
-              <input type="range" min="0.02" max="0.12" step="0.01"
-                     value={tiltSensitivity} onChange={e=>setTiltSensitivity(parseFloat(e.target.value))}/>
-            </label>
-
-            {/* Haptics & Tone */}
-            <button onClick={()=>setHapticsOn(v=>!v)}
-                    className={`px-4 py-2 rounded-full ${hapticsOn?'bg-emerald-600':'bg-slate-800'}`}>
-              {hapticsOn ? 'Haptics ON 📳' : 'Haptics OFF 📴'}
-            </button>
-            <button onClick={()=>setToneOn(v=>!v)}
-                    className={`px-4 py-2 rounded-full ${toneOn?'bg-sky-600':'bg-slate-800'}`}>
-              {toneOn ? 'Tone ON 🔊' : 'Tone OFF 🔇'}
-            </button>
-
-            {/* Challenge */}
-            {!inChal
-              ? <button onClick={startChallenge} className="px-4 py-2 rounded-full bg-pink-600">Start Challenge (10s)</button>
-              : <button onClick={stopChallenge} className="px-4 py-2 rounded-full bg-pink-800">Stop</button>}
-            <span className="ml-2 text-sm text-slate-300">Time: <b>{Math.ceil(clock)}</b>s</span>
-
-            {/* Examples */}
-            <span className="ml-auto text-sm text-slate-400">Examples:</span>
-            <button className="px-3 py-1 rounded-lg bg-slate-800" onClick={()=>setExample('sinc')}>sin(x)/x @ 0</button>
-            <button className="px-3 py-1 rounded-lg bg-slate-800" onClick={()=>setExample('rem')}>removable</button>
-            <button className="px-3 py-1 rounded-lg bg-slate-800" onClick={()=>setExample('jump')}>jump</button>
-            <button className="px-3 py-1 rounded-lg bg-slate-800" onClick={()=>setExample('rat')}>rational</button>
-            <button className="px-3 py-1 rounded-lg bg-slate-800" onClick={()=>setExample('osc')}>x·sin(1/x)</button>
+    <!-- Controls -->
+    <div class="panel rounded-2xl p-4 md:p-6" id="controls">
+      <div class="grid md:grid-cols-3 gap-4">
+        <label class="block">
+          <span class="text-sm text-slate-300">Function f(x)</span>
+          <input id="func" class="w-full mt-1 bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:ring-2 focus:ring-fuchsia-500" value="sin(x)/x"/>
+        </label>
+        <label class="block">
+          <span class="text-sm text-slate-300">Point a</span>
+          <input id="pointA" type="number" class="w-full mt-1 bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:ring-2 focus:ring-fuchsia-500" value="0"/>
+        </label>
+        <div>
+          <span class="text-sm text-slate-300">Approach</span>
+          <div class="flex gap-2 mt-1">
+            <button id="btnLeft"   class="flex-1 p-2 rounded-lg font-semibold bg-slate-800">Left (x→a⁻)</button>
+            <button id="btnBoth"   class="flex-1 p-2 rounded-lg font-semibold bg-fuchsia-600">Both</button>
+            <button id="btnRight"  class="flex-1 p-2 rounded-lg font-semibold bg-slate-800">Right (x→a⁺)</button>
           </div>
         </div>
+      </div>
 
-        {/* Readout */}
-        <div className="panel rounded-2xl p-4 md:p-6">
-          <div className="grid md:grid-cols-4 gap-4 text-sm">
-            <div className="bg-slate-900/40 rounded-xl p-3"><b>Left limit</b><div className="mt-1">{Number.isFinite(LL)? LL.toFixed(4) : '—'}</div></div>
-            <div className="bg-slate-900/40 rounded-xl p-3"><b>Right limit</b><div className="mt-1">{Number.isFinite(LR)? LR.toFixed(4) : '—'}</div></div>
-            <div className="bg-slate-900/40 rounded-xl p-3"><b>Two-sided</b><div className="mt-1">{L==='DNE'?'DNE': Number.isFinite(L)? L.toFixed(4) : '—'}</div></div>
-            <div className="bg-slate-900/40 rounded-xl p-3"><b>f(a)</b><div className="mt-1">{Number.isFinite(fAtA)? fAtA.toFixed(4) : String(fAtA)}</div></div>
-          </div>
-          <p className="text-slate-400 text-xs mt-3">Two-sided limit is computed from left & right numerical samples. If they disagree, we report DNE.</p>
-        </div>
+      <div class="mt-4 flex flex-wrap gap-2 items-center">
+        <button id="btnEnableTilt" class="px-4 py-2 rounded-full bg-indigo-600">Enable Tilt (iOS will ask)</button>
+        <button id="btnCalTilt" class="px-4 py-2 rounded-full bg-indigo-800" disabled>Calibrate tilt</button>
+        <label class="flex items-center gap-2 ml-2">
+          <span class="text-sm text-slate-300">Sensitivity</span>
+          <input id="sens" type="range" min="0.02" max="0.12" step="0.01" value="0.06"/>
+        </label>
 
-        {/* Graph */}
-        <div className="panel rounded-2xl p-4 md:p-6">
-          <div className="flex justify-center overflow-x-auto">
-            <canvas
-              ref={canvasRef}
-              className="graph"
-              onMouseDown={(e)=>{ setDragging(true); handleDrag(e); }}
-              onMouseMove={handleDrag}
-              onMouseUp={()=>setDragging(false)}
-              onMouseLeave={()=>setDragging(false)}
-              onTouchStart={(e)=>{ setDragging(true); handleDrag(e); }}
-              onTouchMove={handleDrag}
-              onTouchEnd={()=>setDragging(false)}
-            ></canvas>
-          </div>
-          <p className="text-center text-slate-400 text-sm mt-2">
-            Drag or tilt your phone to move x. Shake to shuffle an example & start a challenge. Hold near the limit to rack up points.
-          </p>
-        </div>
+        <button id="btnHap"  class="px-4 py-2 rounded-full bg-emerald-600">Haptics ON 📳</button>
+        <button id="btnTone" class="px-4 py-2 rounded-full bg-slate-800">Tone OFF 🔇</button>
 
-        {errMsg && <div className="panel rounded-2xl p-4 text-red-300">{errMsg}</div>}
+        <button id="btnStart" class="px-4 py-2 rounded-full bg-pink-600">Start Challenge (10s)</button>
+        <button id="btnStop"  class="px-4 py-2 rounded-full bg-pink-800 hidden">Stop</button>
+        <span class="ml-2 text-sm text-slate-300">Time: <b id="time">10</b>s</span>
 
-        <div className="text-center text-slate-500 text-xs pb-8">© You · React + Math.js · Phone tilt, haptics, tone, and confetti.</div>
+        <span class="ml-auto text-sm text-slate-400">Examples:</span>
+        <button class="px-3 py-1 rounded-lg bg-slate-800" data-ex="sinc">sin(x)/x @ 0</button>
+        <button class="px-3 py-1 rounded-lg bg-slate-800" data-ex="rem">removable</button>
+        <button class="px-3 py-1 rounded-lg bg-slate-800" data-ex="jump">jump</button>
+        <button class="px-3 py-1 rounded-lg bg-slate-800" data-ex="rat">rational</button>
+        <button class="px-3 py-1 rounded-lg bg-slate-800" data-ex="osc">x·sin(1/x)</button>
       </div>
     </div>
-  );
 
-  function handleDrag(e){
-    if(!dragging) return;
-    const c = canvasRef.current; if(!c) return;
-    const rect = c.getBoundingClientRect();
-    const clientX = e.clientX ?? (e.touches && e.touches[0].clientX);
-    const padding = 50, graphSize=520, scale=40;
-    let nx = (clientX - rect.left - padding - graphSize/2) / scale;
-    if(side==='left' && nx>a) nx=a;
-    if(side==='right' && nx<a) nx=a;
-    setX(nx);
+    <!-- Readout -->
+    <div class="panel rounded-2xl p-4 md:p-6">
+      <div class="grid md:grid-cols-4 gap-4 text-sm">
+        <div class="bg-slate-900/40 rounded-xl p-3"><span class="chip" style="background:#60a5fa"></span><b>Left limit</b><div class="mt-1" id="leftVal">—</div></div>
+        <div class="bg-slate-900/40 rounded-xl p-3"><span class="chip" style="background:#34d399"></span><b>Right limit</b><div class="mt-1" id="rightVal">—</div></div>
+        <div class="bg-slate-900/40 rounded-xl p-3"><span class="chip" style="background:#f472b6"></span><b>Two-sided</b><div class="mt-1" id="twoVal">—</div></div>
+        <div class="bg-slate-900/40 rounded-xl p-3"><span class="chip" style="background:#a78bfa"></span><b>f(a)</b><div class="mt-1" id="faVal">—</div></div>
+      </div>
+      <p class="text-slate-400 text-xs mt-3">Two-sided limit is computed from left & right numerical samples. If they disagree, we report DNE.</p>
+    </div>
+
+    <!-- Graph -->
+    <div class="panel rounded-2xl p-4 md:p-6">
+      <div class="flex justify-center overflow-x-auto">
+        <canvas id="graph" class="graph"></canvas>
+      </div>
+      <p class="text-center text-slate-400 text-sm mt-2">
+        Drag or tilt your phone to move x. Shake to shuffle an example & start a challenge. Hold near the limit to rack up points.
+      </p>
+      <div id="error" class="text-red-300 mt-2"></div>
+    </div>
+
+    <div class="text-center text-slate-500 text-xs pb-8">© You · Math.js · Tilt, haptics, tone, and confetti.</div>
+  </div>
+</div>
+
+<script>
+/* ====== State ====== */
+let funcText = 'sin(x)/x';
+let a = 0;
+let side = 'two'; // 'left' | 'right' | 'two'
+let compiled = null;
+
+let L = null;   // two-sided (or 'DNE')
+let LL = null;  // left
+let LR = null;  // right
+let fAtA = null;
+
+let x = 0;
+let dragging = false;
+
+let tiltEnabled = false;
+let tiltSensitivity = 0.06;
+let tiltBase = 0;
+let hapticsOn = true;
+
+let toneOn = false;
+let audio = null; // {ctx, osc, gain}
+
+/* Challenge */
+let inChal = false;
+let clock = 10;
+let score = 0;
+let timer = null;
+
+/* Canvas + constants */
+const canvas = document.getElementById('graph');
+const ctx = canvas.getContext('2d');
+const padding = 50, graphSize = 520, scale = 40;
+function resizeCanvas(){
+  const dpr = window.devicePixelRatio || 1;
+  const W = graphSize + 2*padding, H = W;
+  canvas.width = Math.floor(W*dpr);
+  canvas.height = Math.floor(H*dpr);
+  canvas.style.width = W+'px';
+  canvas.style.height = H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+/* UI elements */
+const $ = s => document.querySelector(s);
+const funcEl = $('#func');
+const aEl = $('#pointA');
+const leftBtn = $('#btnLeft');
+const bothBtn = $('#btnBoth');
+const rightBtn = $('#btnRight');
+const timeEl = $('#time');
+const errEl = $('#error');
+const leftVal = $('#leftVal');
+const rightVal = $('#rightVal');
+const twoVal = $('#twoVal');
+const faVal = $('#faVal');
+
+const btnEnableTilt = $('#btnEnableTilt');
+const btnCalTilt = $('#btnCalTilt');
+const sensEl = $('#sens');
+const btnHap = $('#btnHap');
+const btnTone = $('#btnTone');
+const btnStart = $('#btnStart');
+const btnStop = $('#btnStop');
+
+/* ====== Compile + recompute ====== */
+function compile(){
+  try{
+    const node = math.parse(funcText);
+    compiled = node.compile();
+    errEl.textContent = '';
+  }catch(e){
+    compiled = null;
+    errEl.textContent = 'Function parse error. Try: sin(x)/x, (x^2-1)/(x-1), abs(x)/x, x*sin(1/x)';
+  }
+}
+function safeEval(xv){
+  if(!compiled) return NaN;
+  try { return compiled.evaluate({x:xv}); } catch { return NaN; }
+}
+function numericLimit(av, which){
+  const hs=[1e-1, 5e-2, 1e-2, 5e-3, 1e-3];
+  const vals=[];
+  for(const h of hs){
+    const xv = which==='left' ? av - h : av + h;
+    const yv = safeEval(xv);
+    if(Number.isFinite(yv)) vals.push(yv);
+  }
+  if(!vals.length) return NaN;
+  const last = vals.slice(-3).sort((a,b)=>a-b);
+  return last[Math.floor(last.length/2)];
+}
+function recompute(){
+  if(!compiled){ L=LL=LR=fAtA=null; updateReadout(); draw(); return; }
+  fAtA = safeEval(a);
+  LL = numericLimit(a,'left');
+  LR = numericLimit(a,'right');
+  if(Number.isFinite(LL) && Number.isFinite(LR) && Math.abs(LL-LR)<1e-2){
+    L = (LL+LR)/2;
+  } else {
+    L = 'DNE';
+  }
+  // start x based on side
+  if(side==='left') x = a - 2;
+  else if(side==='right') x = a + 2;
+  else x = a;
+  updateReadout(); draw();
+}
+
+/* ====== Draw ====== */
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const W = graphSize + 2*padding, H = W;
+  // grid
+  ctx.strokeStyle='#26304d'; ctx.lineWidth=1;
+  for(let i=padding;i<=W-padding;i+=20){ ctx.beginPath(); ctx.moveTo(i,padding); ctx.lineTo(i,H-padding); ctx.stroke(); }
+  for(let j=padding;j<=H-padding;j+=20){ ctx.beginPath(); ctx.moveTo(padding,j); ctx.lineTo(W-padding,j); ctx.stroke(); }
+  // axes
+  ctx.strokeStyle='#8aa0d6'; ctx.lineWidth=2;
+  const x0 = padding + graphSize/2, y0 = padding + graphSize/2;
+  ctx.beginPath(); ctx.moveTo(padding,y0); ctx.lineTo(W-padding,y0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x0,padding); ctx.lineTo(x0,H-padding); ctx.stroke();
+  // function
+  if(compiled){
+    ctx.strokeStyle='#38BDF8'; ctx.lineWidth=3; ctx.lineJoin='round'; ctx.shadowColor='#38BDF8'; ctx.shadowBlur=8;
+    ctx.beginPath(); let first=true;
+    for(let px=-graphSize/2; px<=graphSize/2; px++){
+      const xv = px/scale; const yv = safeEval(xv);
+      const X = x0 + px; const Y = y0 - yv*scale;
+      if(!Number.isFinite(yv) || Y < padding || Y > H-padding){
+        if(!first){ ctx.stroke(); ctx.beginPath(); first=true; }
+        continue;
+      }
+      if(first){ ctx.moveTo(X,Y); first=false; } else ctx.lineTo(X,Y);
+    }
+    ctx.stroke(); ctx.shadowBlur=0;
+  }
+  // guides
+  ctx.setLineDash([6,6]); ctx.strokeStyle='#EC4899'; ctx.lineWidth=2;
+  const XA = x0 + a*scale;
+  ctx.beginPath(); ctx.moveTo(XA,padding); ctx.lineTo(XA,H-padding); ctx.stroke();
+  if(L!=='DNE' && Number.isFinite(L)){
+    const YL = y0 - L*scale;
+    ctx.beginPath(); ctx.moveTo(padding,YL); ctx.lineTo(W-padding,YL); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#0b1020'; ctx.strokeStyle='#EC4899'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(XA,YL,6,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  } else {
+    ctx.setLineDash([]);
+  }
+  // point
+  const yv = safeEval(x);
+  if(Number.isFinite(yv)){
+    const XP = x0 + x*scale; const YP = y0 - yv*scale;
+    const Yref = (Number.isFinite(L) ? (y0 - L*scale) : YP);
+    ctx.strokeStyle='rgba(59,130,246,0.55)'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(XA, Yref); ctx.lineTo(XP,YP); ctx.stroke();
+    ctx.strokeStyle='#60A5FA'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(XP,YP); ctx.lineTo(XP,y0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(XP,YP); ctx.lineTo(x0,YP); ctx.stroke();
+    ctx.fillStyle='#3B82F6';
+    ctx.beginPath(); ctx.arc(XP,YP,7,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#e6edf7'; ctx.font='14px system-ui, sans-serif';
+    ctx.fillText(`x=${x.toFixed(2)}`, XP+10, YP-12);
+    ctx.fillText(`f(x)=${yv.toFixed(2)}`, XP+10, YP+16);
   }
 }
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<App />);
+/* ====== Readout ====== */
+function updateReadout(){
+  leftVal.textContent  = Number.isFinite(LL) ? LL.toFixed(4) : '—';
+  rightVal.textContent = Number.isFinite(LR) ? LR.toFixed(4) : '—';
+  twoVal.textContent   = (L==='DNE') ? 'DNE' : (Number.isFinite(L) ? L.toFixed(4) : '—');
+  faVal.textContent    = Number.isFinite(fAtA) ? fAtA.toFixed(4) : String(fAtA);
+}
+
+/* ====== Events (inputs) ====== */
+funcEl.addEventListener('input', ()=>{ funcText = funcEl.value; compile(); recompute(); });
+aEl.addEventListener('input', ()=>{ a = parseFloat(aEl.value||'0'); recompute(); });
+
+leftBtn.addEventListener('click', ()=>{ side='left';  leftBtn.classList.add('bg-fuchsia-600'); bothBtn.classList.remove('bg-fuchsia-600'); rightBtn.classList.remove('bg-fuchsia-600'); recompute(); });
+bothBtn.addEventListener('click', ()=>{ side='two';   bothBtn.classList.add('bg-fuchsia-600'); leftBtn.classList.remove('bg-fuchsia-600'); rightBtn.classList.remove('bg-fuchsia-600'); recompute(); });
+rightBtn.addEventListener('click',()=>{ side='right'; rightBtn.classList.add('bg-fuchsia-600'); leftBtn.classList.remove('bg-fuchsia-600'); bothBtn.classList.remove('bg-fuchsia-600'); recompute(); });
+
+/* ====== Drag on canvas ====== */
+function posToX(clientX){
+  const rect = canvas.getBoundingClientRect();
+  let nx = (clientX - rect.left - padding - graphSize/2) / scale;
+  if(side==='left' && nx>a) nx=a;
+  if(side==='right' && nx<a) nx=a;
+  return nx;
+}
+canvas.addEventListener('mousedown', e => { dragging=true; x = posToX(e.clientX); draw(); });
+canvas.addEventListener('mousemove', e => { if(!dragging) return; x = posToX(e.clientX); draw(); feedback(); });
+canvas.addEventListener('mouseup',   ()=> dragging=false);
+canvas.addEventListener('mouseleave',()=> dragging=false);
+canvas.addEventListener('touchstart', e => { dragging=true; x = posToX(e.touches[0].clientX); draw(); }, {passive:true});
+canvas.addEventListener('touchmove',  e => { if(!dragging) return; x = posToX(e.touches[0].clientX); draw(); feedback(); }, {passive:true});
+canvas.addEventListener('touchend',   ()=> dragging=false);
+
+/* ====== Tilt control ====== */
+btnEnableTilt.addEventListener('click', async ()=>{
+  try{
+    const DOE = window.DeviceOrientationEvent;
+    if (DOE && typeof DOE.requestPermission === 'function') {
+      const res = await DOE.requestPermission();
+      if (res !== 'granted') throw new Error('Permission denied');
+    }
+    tiltEnabled = true;
+    btnCalTilt.disabled = false;
+  }catch(err){ alert('Tilt permission failed. Try Safari/Chrome on phone.\n' + err.message); }
+});
+btnCalTilt.addEventListener('click', ()=>{
+  function once(e){
+    if (typeof e.gamma === 'number') tiltBase = e.gamma;
+    window.removeEventListener('deviceorientation', once);
+  }
+  window.addEventListener('deviceorientation', once, {passive:true});
+});
+sensEl.addEventListener('input', ()=>{ tiltSensitivity = parseFloat(sensEl.value); });
+
+window.addEventListener('deviceorientation', e=>{
+  if(!tiltEnabled) return;
+  let gamma = (typeof e.gamma === 'number') ? e.gamma : 0;
+  if (Math.abs(gamma) > 89) gamma = 0;
+  let nx = a + (gamma - tiltBase) * tiltSensitivity;
+  if(side==='left' && nx>a) nx=a;
+  if(side==='right' && nx<a) nx=a;
+  x = nx; draw(); feedback();
+}, {passive:true});
+
+/* ====== Haptics + Tone ====== */
+btnHap.addEventListener('click', ()=>{
+  hapticsOn = !hapticsOn;
+  btnHap.textContent = hapticsOn ? 'Haptics ON 📳' : 'Haptics OFF 📴';
+  btnHap.classList.toggle('bg-emerald-600', hapticsOn);
+  btnHap.classList.toggle('bg-slate-800', !hapticsOn);
+});
+btnTone.addEventListener('click', async ()=>{
+  toneOn = !toneOn;
+  if(toneOn){
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    audio = { ctx: new Ctx(), osc: null, gain: null };
+    audio.osc = audio.ctx.createOscillator();
+    audio.gain = audio.ctx.createGain();
+    audio.gain.gain.value = 0.08;
+    audio.osc.type = 'sine';
+    audio.osc.connect(audio.gain).connect(audio.ctx.destination);
+    audio.osc.start();
+  }else{
+    if(audio && audio.osc){ try{ audio.osc.stop(); audio.ctx.close(); }catch{} }
+    audio = null;
+  }
+  btnTone.textContent = toneOn ? 'Tone ON 🔊' : 'Tone OFF 🔇';
+  btnTone.classList.toggle('bg-sky-600', toneOn);
+  btnTone.classList.toggle('bg-slate-800', !toneOn);
+});
+
+function feedback(){
+  if(hapticsOn){
+    const nearA = Math.abs(x - a);
+    const nearL = (L!=='DNE' && Number.isFinite(L)) ? Math.abs(safeEval(x) - L) : null;
+    if(nearA < 0.08 && 'vibrate' in navigator) navigator.vibrate(25);
+    if(nearL !== null && nearL < 0.06 && 'vibrate' in navigator) navigator.vibrate([0,50]);
+  }
+  if(toneOn && audio){
+    const err = (L!=='DNE' && Number.isFinite(L)) ? Math.abs(safeEval(x) - L) : 1;
+    const e = Math.min(1, err);
+    const freq = 160 + (1 - Math.min(1, e*1.2)) * 1040;
+    try{ audio.osc.frequency.setTargetAtTime(freq, audio.ctx.currentTime, 0.05); }catch{}
+  }
+}
+
+/* ====== Challenge (10s) ====== */
+btnStart.addEventListener('click', ()=>{
+  if(L==='DNE' || !Number.isFinite(L)){ alert('Pick a case with a two-sided limit (e.g., sin(x)/x @ 0).'); return; }
+  inChal = true; clock = 10; score = 0;
+  btnStart.classList.add('hidden'); btnStop.classList.remove('hidden');
+  timer && clearInterval(timer);
+  let last = performance.now();
+  timer = setInterval(()=>{
+    const now = performance.now();
+    const dt = Math.min(0.12, (now - last)/1000); last = now;
+    const errX = Math.abs(x - a);
+    const errF = Math.abs(safeEval(x) - L);
+    const closeness = Math.max(0, 1 - (errX/0.25 + errF/0.25));
+    score += Math.max(0, closeness) * dt * 100;
+    clock = Math.max(0, clock - dt);
+    timeEl.textContent = Math.ceil(clock);
+    if(clock === 0){
+      clearInterval(timer);
+      inChal = false;
+      btnStart.classList.remove('hidden'); btnStop.classList.add('hidden');
+      confetti(Math.round(score));
+    }
+  }, 100);
+});
+btnStop.addEventListener('click', ()=>{
+  clearInterval(timer); inChal = false;
+  btnStart.classList.remove('hidden'); btnStop.classList.add('hidden');
+});
+
+function confetti(scoreVal){
+  const c = document.getElementById('confetti');
+  const cx = c.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  c.width = Math.floor(innerWidth*dpr); c.height = Math.floor(innerHeight*dpr);
+  c.style.width = innerWidth+'px'; c.style.height = innerHeight+'px';
+  cx.setTransform(dpr,0,0,dpr,0,0);
+  const parts = Array.from({length:180}, ()=>({
+    x: Math.random()*innerWidth, y: -20 - Math.random()*100,
+    vx:(Math.random()-0.5)*2, vy:2+Math.random()*3,
+    rot:Math.random()*Math.PI, vr:(Math.random()-0.5)*0.2,
+    s: 4+Math.random()*4, col:['#7dd3fc','#34d399','#a78bfa','#f472b6','#fbbf24'][Math.floor(Math.random()*5)]
+  }));
+  let t=0;
+  (function tick(){
+    cx.clearRect(0,0,innerWidth,innerHeight);
+    parts.forEach(p=>{ p.x+=p.vx; p.y+=p.vy; p.rot+=p.vr;
+      cx.save(); cx.translate(p.x,p.y); cx.rotate(p.rot); cx.fillStyle=p.col;
+      cx.fillRect(-p.s/2,-p.s/2,p.s,p.s); cx.restore(); });
+    t+=16; if(t<1800) requestAnimationFrame(tick); else cx.clearRect(0,0,innerWidth,innerHeight);
+  })();
+  const div=document.createElement('div');
+  div.textContent=`Challenge score: ${scoreVal} pts`;
+  Object.assign(div.style,{position:'fixed',left:'50%',top:'18px',transform:'translateX(-50%)',background:'rgba(10,20,60,.9)',color:'#e6edf7',border:'1px solid rgba(255,255,255,.2)',padding:'10px 14px',borderRadius:'12px',zIndex:9999});
+  document.body.appendChild(div); setTimeout(()=>div.remove(), 2000);
+}
+
+/* ====== Shake to shuffle ====== */
+window.addEventListener('devicemotion', e=>{
+  const a = e.accelerationIncludingGravity || e.acceleration || {};
+  const mag = Math.abs(a.x||0)+Math.abs(a.y||0)+Math.abs(a.z||0);
+  const now = performance.now();
+  if(!window._shake){ window._shake = {last:now, sum:0}; }
+  if(now - window._shake.last > 150){ window._shake.sum=0; window._shake.last=now; }
+  else {
+    window._shake.sum += mag;
+    if(window._shake.sum > 60){
+      window._shake.sum = 0;
+      randomPresetAndGo();
+    }
+  }
+},{passive:true});
+
+function randomPresetAndGo(){
+  const presets=[ {f:'sin(x)/x',a:0},{f:'(x^2-1)/(x-1)',a:1},{f:'(2*x^2-3*x+1)/(x-1)',a:1},{f:'(x+1)-1',a:0} ];
+  const pick = presets[Math.floor(Math.random()*presets.length)];
+  funcText=pick.f; a=pick.a; side='two';
+  funcEl.value=funcText; aEl.value=String(a);
+  bothBtn.click();
+  compile(); recompute();
+  setTimeout(()=>btnStart.click(), 300);
+}
+
+/* ====== Examples ====== */
+document.querySelectorAll('[data-ex]').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const k = btn.getAttribute('data-ex');
+    if(k==='sinc'){ funcText='sin(x)/x'; a=0; }
+    if(k==='rem'){ funcText='(x^2-1)/(x-1)'; a=1; }
+    if(k==='jump'){ funcText='abs(x)/x'; a=0; }
+    if(k==='rat'){ funcText='(2*x^2-3*x+1)/(x-1)'; a=1; }
+    if(k==='osc'){ funcText='x*sin(1/x)'; a=0; }
+    funcEl.value=funcText; aEl.value=String(a); bothBtn.click(); compile(); recompute();
+  });
+});
+
+/* ====== Init ====== */
+compile(); recompute();
+
 </script>
 </body>
 </html>

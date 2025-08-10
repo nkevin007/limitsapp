@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>Limits Explorer+</title>
 
-<!-- Tailwind (CDN) for styling -->
 <script src="https://cdn.tailwindcss.com"></script>
-<!-- Math.js (UMD global `math`) -->
 <script src="https://unpkg.com/mathjs@11/dist/math.min.js"></script>
 
 <style>
@@ -18,8 +16,8 @@
   body:before, body:after{
     content:""; position:fixed; inset:-20%; pointer-events:none; z-index:-1;
     background:radial-gradient(700px 400px at 10% -10%, #1b2a5a 0%, transparent 55%),
-               radial-gradient(700px 400px at 110% 10%, #14324c 0%, transparent 55%),
-               conic-gradient(from 180deg at 50% 120%, #0b1433, #09102a, #0c1a44, #0b1433);
+                radial-gradient(700px 400px at 110% 10%, #14324c 0%, transparent 55%),
+                conic-gradient(from 180deg at 50% 120%, #0b1433, #09102a, #0c1a44, #0b1433);
     animation: hue 18s linear infinite;
   }
   @keyframes hue { 0%{filter:hue-rotate(0deg)} 100%{filter:hue-rotate(25deg)} }
@@ -37,7 +35,6 @@
       <p class="text-slate-300 text-center mt-2">Tilt, shake, haptics, tone, and a quick challenge to “hit the limit”.</p>
     </div>
 
-    <!-- Controls -->
     <div class="panel rounded-2xl p-4 md:p-6" id="controls">
       <div class="grid md:grid-cols-3 gap-4">
         <label class="block">
@@ -82,7 +79,6 @@
       </div>
     </div>
 
-    <!-- Readout -->
     <div class="panel rounded-2xl p-4 md:p-6">
       <div class="grid md:grid-cols-4 gap-4 text-sm">
         <div class="bg-slate-900/40 rounded-xl p-3"><span class="chip" style="background:#60a5fa"></span><b>Left limit</b><div class="mt-1" id="leftVal">—</div></div>
@@ -93,13 +89,12 @@
       <p class="text-slate-400 text-xs mt-3">Two-sided limit is computed from left & right numerical samples. If they disagree, we report DNE.</p>
     </div>
 
-    <!-- Graph -->
     <div class="panel rounded-2xl p-4 md:p-6">
       <div class="flex justify-center overflow-x-auto">
         <canvas id="graph" class="graph"></canvas>
       </div>
       <p class="text-center text-slate-400 text-sm mt-2">
-        Drag or tilt your phone to move x. Shake to shuffle an example & start a challenge. Hold near the limit to rack up points.
+        Drag or tilt your phone to move x. Shake to shuffle an example. Hold near the limit to rack up points during a challenge.
       </p>
       <div id="error" class="text-red-300 mt-2"></div>
     </div>
@@ -115,9 +110,9 @@ let a = 0;
 let side = 'two'; // 'left' | 'right' | 'two'
 let compiled = null;
 
-let L = null;   // two-sided (or 'DNE')
-let LL = null;  // left
-let LR = null;  // right
+let L = null;    // two-sided (or 'DNE')
+let LL = null;   // left
+let LR = null;   // right
 let fAtA = null;
 
 let x = 0;
@@ -209,8 +204,10 @@ function recompute(){
   LR = numericLimit(a,'right');
   if(Number.isFinite(LL) && Number.isFinite(LR) && Math.abs(LL-LR)<1e-2){
     L = (LL+LR)/2;
+    btnStart.classList.remove('hidden');
   } else {
     L = 'DNE';
+    btnStart.classList.add('hidden');
   }
   // start x based on side
   if(side==='left') x = a - 2;
@@ -440,6 +437,7 @@ function confetti(scoreVal){
 }
 
 /* ====== Shake to shuffle ====== */
+let isShaking = false;
 window.addEventListener('devicemotion', e=>{
   const a = e.accelerationIncludingGravity || e.acceleration || {};
   const mag = Math.abs(a.x||0)+Math.abs(a.y||0)+Math.abs(a.z||0);
@@ -448,9 +446,11 @@ window.addEventListener('devicemotion', e=>{
   if(now - window._shake.last > 150){ window._shake.sum=0; window._shake.last=now; }
   else {
     window._shake.sum += mag;
-    if(window._shake.sum > 60){
+    if(window._shake.sum > 60 && !isShaking){
       window._shake.sum = 0;
+      isShaking = true;
       randomPresetAndGo();
+      setTimeout(() => { isShaking = false; }, 1000); // Prevent repeated triggers
     }
   }
 },{passive:true});
@@ -462,7 +462,6 @@ function randomPresetAndGo(){
   funcEl.value=funcText; aEl.value=String(a);
   bothBtn.click();
   compile(); recompute();
-  setTimeout(()=>btnStart.click(), 300);
 }
 
 /* ====== Examples ====== */
